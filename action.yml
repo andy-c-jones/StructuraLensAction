@@ -1,0 +1,53 @@
+name: "StructuraLens"
+description: "Analyze C# solutions and report maintainability diffs on pull requests"
+author: "Dark Peak Development"
+
+inputs:
+  solution:
+    description: "Path to solution (.sln/.slnx) or project (.csproj)"
+    required: true
+  working-directory:
+    description: "Working directory for analysis"
+    required: false
+    default: "."
+  github-token:
+    description: "GitHub token used for PR comments"
+    required: false
+  run-diff:
+    description: "Run base vs head diff on pull_request events"
+    required: false
+    default: "true"
+  report-html:
+    description: "Generate HTML report"
+    required: false
+    default: "true"
+  report-json:
+    description: "Generate JSON report"
+    required: false
+    default: "true"
+  post-comment:
+    description: "Post a PR comment with diff tables"
+    required: false
+    default: "true"
+  max-projects:
+    description: "Max number of projects to include in comment table"
+    required: false
+    default: "10"
+  version:
+    description: "StructuraLens release version (e.g., 1.2.0). Use 'latest' to auto-detect."
+    required: false
+    default: "latest"
+
+outputs:
+  base-report-json:
+    description: "Path to base JSON report"
+  head-report-json:
+    description: "Path to head JSON report"
+  diff-report-json:
+    description: "Path to diff JSON report"
+  diff-report-html:
+    description: "Path to diff HTML report"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
