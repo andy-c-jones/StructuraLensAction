@@ -1,6 +1,8 @@
 # StructuraLens GitHub Action
 
-Analyze C# solutions and post maintainability diffs on pull requests.
+Analyze C# solutions with StructuraLens and post maintainability diffs on pull requests.
+
+This action downloads the StructuraLens CLI release from `andy-c-jones/StructuraLens`, runs analysis, and optionally comments on PRs.
 
 ## Inputs
 
@@ -16,18 +18,18 @@ Analyze C# solutions and post maintainability diffs on pull requests.
 
 ## Outputs
 
-- `base-report-json`
-- `head-report-json`
-- `diff-report-json`
-- `diff-report-html`
+- `base-report-json`: Path to base JSON report (PRs only)
+- `head-report-json`: Path to head JSON report
+- `diff-report-json`: Path to diff JSON report (PRs only)
+- `diff-report-html`: Path to diff HTML report (PRs only)
 
-## Example
+## Example (Pull Requests)
 
 ```yaml
 name: StructuraLens
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -40,13 +42,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: ./.github/actions/structuralens-action
+      - uses: andy-c-jones/StructuraLensAction@v1
         with:
-          solution: MySolution.sln
+          solution: StructuraLens.sln
           github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Example (Single Snapshot)
+
+```yaml
+name: StructuraLens Snapshot
+on:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: andy-c-jones/StructuraLensAction@v1
+        with:
+          solution: StructuraLens.sln
+          report-html: true
+          report-json: true
 ```
 
 ## Notes
 
+- For PR diffs, `actions/checkout` must use `fetch-depth: 0` so the base/head commits are available locally.
 - On PRs, the action analyzes both base and head commits and generates a diff.
 - On non-PR events, it generates a single snapshot report.
