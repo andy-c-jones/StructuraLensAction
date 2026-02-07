@@ -1,6 +1,9 @@
 name: "StructuraLens"
 description: "Analyze C# solutions and report maintainability diffs on pull requests"
 author: "Dark Peak Development"
+branding:
+  icon: "bar-chart-2"
+  color: "blue"
 
 inputs:
   solution:
