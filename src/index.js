@@ -22,6 +22,24 @@ function startTimer(label) {
   };
 }
 
+async function retryAsync(
+  fn,
+  { retries = 3, delayMs = 1000, backoff = 2 } = {},
+) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt > retries) throw err;
+      const wait = delayMs * Math.pow(backoff, attempt - 1);
+      core.warning(
+        `Attempt ${attempt}/${retries + 1} failed: ${err.message}. Retrying in ${wait}ms...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
+}
+
 function getPlatformAsset(version) {
   const platform = os.platform();
   const arch = os.arch();
@@ -358,24 +376,52 @@ async function main() {
           );
         }
 
+        let commentPosted = false;
         const commentToken = process.env.GITHUB_TOKEN || "";
         if (!commentToken) {
           core.warning("GitHub token not provided. Skipping PR comment.");
         } else {
           const finishComment = startTimer("PR comment post");
-          const client = github.getOctokit(commentToken);
-          const response = await client.rest.issues.createComment({
-            owner: github.context.repo.owner,
-            repo: github.context.repo.repo,
-            issue_number: pr.number,
-            body: commentBody,
-          });
-          if (response) {
-            core.info(
-              `PR comment posted (status ${response.status}, id ${response.data && response.data.id ? response.data.id : "n/a"}).`,
+          try {
+            const client = github.getOctokit(commentToken);
+            const response = await retryAsync(
+              () =>
+                client.rest.issues.createComment({
+                  owner: github.context.repo.owner,
+                  repo: github.context.repo.repo,
+                  issue_number: pr.number,
+                  body: commentBody,
+                }),
+              { retries: 3, delayMs: 1000, backoff: 2 },
+            );
+            if (response) {
+              core.info(
+                `PR comment posted (status ${response.status}, id ${response.data && response.data.id ? response.data.id : "n/a"}).`,
+              );
+              commentPosted = true;
+            }
+          } catch (commentError) {
+            core.warning(
+              `Failed to post PR comment after retries: ${commentError.message}`,
             );
           }
           finishComment();
+        }
+
+        if (!commentPosted) {
+          try {
+            const upload = await uploadMarkdownArtifact(
+              markdownPath,
+              "structuralens-pr-comment.md",
+            );
+            core.info(
+              `PR comment not posted; uploaded as artifact structuralens-pr-comment.md (${upload.size} bytes).`,
+            );
+          } catch (uploadError) {
+            core.warning(
+              `Failed to upload PR comment as artifact: ${uploadError.message}`,
+            );
+          }
         }
       }
       finishDiffFlow();
