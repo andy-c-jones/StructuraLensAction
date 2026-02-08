@@ -10,7 +10,7 @@
     "format": "prettier --check ."
   },
   "dependencies": {
-    "@actions/artifact": "^2.1.1",
+    "@actions/artifact": "^6.1.0",
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.0",
     "@actions/io": "^1.1.3",
