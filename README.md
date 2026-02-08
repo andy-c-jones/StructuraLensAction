@@ -1,8 +1,24 @@
 # StructuraLens GitHub Action
 
+> [!CAUTION]
+> Use of this Action constitutes agreement to the **[Proprietary EULA](./DISCLAIMER.md)**.
+
 Analyze C# solutions with StructuraLens and post maintainability diffs on pull requests.
 
 This action downloads the StructuraLens CLI release from `andy-c-jones/StructuraLens`, runs analysis, and optionally comments on PRs.
+
+## ⚖️ Licensing & Terms of Use
+
+This project follows a hybrid licensing model.
+
+| Component | License | Description |
+| :--- | :--- | :--- |
+| **GitHub Action Code** | [Apache 2.0](./LICENSE.md) | The YAML and scripts in this repo. You are free to fork and modify. |
+| **StructuraLens Binary** | **Proprietary** | The core engine used by this Action. Use requires acceptance of a EULA to can find a copy of [in the disclaimer](./DISCLAIMER.md). |
+
+### Important Information
+* **Automatic Download:** This Action automatically fetches the latest version of the StructuraLens binary during execution.
+* **Prohibitions:** You may not extract, redistribute, or reverse-engineer the CLI binary fetched by this Action.
 
 ## Inputs
 
