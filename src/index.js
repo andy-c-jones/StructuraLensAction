@@ -1,12 +1,12 @@
-const core = require("@actions/core");
-const github = require("@actions/github");
-const artifact = require("@actions/artifact");
-const io = require("@actions/io");
-const tc = require("@actions/tool-cache");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
-const { execFileSync } = require("child_process");
+import * as core from "@actions/core";
+import * as github from "@actions/github";
+import artifact from "@actions/artifact";
+import * as io from "@actions/io";
+import * as tc from "@actions/tool-cache";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { execFileSync } from "child_process";
 
 const COMMENT_CHAR_LIMIT = 65536;
 const COMMENT_CHAR_BUFFER = 1024;
@@ -166,34 +166,26 @@ function buildCompactComment(
 }
 
 async function uploadMarkdownArtifact(filePath, artifactName) {
-  const client = artifact.create();
   const rootDirectory = path.dirname(filePath);
-  const response = await client.uploadArtifact(
+  const response = await artifact.uploadArtifact(
     artifactName,
     [filePath],
     rootDirectory,
-    {
-      continueOnError: false,
-    },
   );
   return response;
 }
 
 async function uploadHtmlArtifact(filePath, artifactName) {
-  const client = artifact.create();
   const rootDirectory = path.dirname(filePath);
-  const response = await client.uploadArtifact(
+  const response = await artifact.uploadArtifact(
     artifactName,
     [filePath],
     rootDirectory,
-    {
-      continueOnError: false,
-    },
   );
   return response;
 }
 
-function buildHtmlArtifactUrl(runId, artifactName) {
+function buildHtmlArtifactUrl(runId) {
   const { owner, repo } = github.context.repo;
   // GitHub doesn't provide direct artifact URLs, so we construct a link to the workflow run
   // Users can download the artifact from the run's artifacts section
@@ -364,10 +356,7 @@ async function main() {
             core.info(
               `Uploaded HTML artifact ${htmlArtifactName} (${upload.size} bytes).`,
             );
-            htmlArtifactUrl = buildHtmlArtifactUrl(
-              github.context.runId,
-              htmlArtifactName,
-            );
+            htmlArtifactUrl = buildHtmlArtifactUrl(github.context.runId);
           } catch (uploadError) {
             core.warning(
               `Failed to upload HTML artifact: ${uploadError.message}`,

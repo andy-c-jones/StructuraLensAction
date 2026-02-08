@@ -2,6 +2,7 @@
   "name": "structuralens-action",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "GitHub Action for StructuraLens",
   "main": "dist/index.js",
   "scripts": {
@@ -11,14 +12,14 @@
   },
   "dependencies": {
     "@actions/artifact": "^6.1.0",
-    "@actions/core": "^1.11.1",
-    "@actions/github": "^6.0.0",
-    "@actions/io": "^1.1.3",
-    "@actions/tool-cache": "^2.0.1"
+    "@actions/core": "^3.0.0",
+    "@actions/github": "^9.0.0",
+    "@actions/io": "^3.0.2",
+    "@actions/tool-cache": "^4.0.0"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.38.1",
-    "eslint": "^9.20.0",
+    "eslint": "^10.0.0",
     "prettier": "^3.4.2"
   }
 }
