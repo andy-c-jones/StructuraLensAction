@@ -1,11 +1,16 @@
 const core = require("@actions/core");
 const github = require("@actions/github");
+const artifact = require("@actions/artifact");
 const io = require("@actions/io");
 const tc = require("@actions/tool-cache");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
+
+const COMMENT_CHAR_LIMIT = 65536;
+const COMMENT_CHAR_BUFFER = 1024;
+const SAFE_COMMENT_CHAR_LIMIT = COMMENT_CHAR_LIMIT - COMMENT_CHAR_BUFFER;
 
 function startTimer(label) {
   const startedAt = Date.now();
@@ -98,6 +103,52 @@ async function downloadCli(version) {
 function runCli(cliPath, args, cwd) {
   core.info(`Running: ${cliPath} ${args.join(" ")}`);
   execFileSync(cliPath, args, { stdio: "inherit", cwd });
+}
+
+function isMarkdownTableSeparator(line) {
+  return /^\s*\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$/.test(line);
+}
+
+function extractFirstMarkdownTable(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const headerLine = lines[i];
+    const separatorLine = lines[i + 1];
+    if (!headerLine.includes("|") || !isMarkdownTableSeparator(separatorLine)) {
+      continue;
+    }
+    let end = i + 2;
+    while (end < lines.length && lines[end].includes("|")) {
+      end += 1;
+    }
+    return lines.slice(i, end).join("\n");
+  }
+  return null;
+}
+
+function buildCompactComment(markdown, artifactName, artifactUploaded) {
+  const banner = artifactUploaded
+    ? `**StructuraLens report too large for PR comment.** Full markdown uploaded as artifact: \`${artifactName}\`.`
+    : "**StructuraLens report too large for PR comment.** Full markdown could not be uploaded as an artifact.";
+  const table = extractFirstMarkdownTable(markdown);
+  if (!table) {
+    return banner;
+  }
+  return `${banner}\n\n${table}`;
+}
+
+async function uploadMarkdownArtifact(filePath, artifactName) {
+  const client = artifact.create();
+  const rootDirectory = path.dirname(filePath);
+  const response = await client.uploadArtifact(
+    artifactName,
+    [filePath],
+    rootDirectory,
+    {
+      continueOnError: false,
+    },
+  );
+  return response;
 }
 
 async function analyzeWithRefs(
@@ -276,6 +327,37 @@ async function main() {
         finishMarkdownDiff();
 
         const body = fs.readFileSync(markdownPath, "utf8");
+        const bodyLength = body.length;
+        core.info(`Markdown diff report length: ${bodyLength} chars`);
+
+        let commentBody = body;
+        const artifactName = "structuralens-diff.md";
+        if (bodyLength > SAFE_COMMENT_CHAR_LIMIT) {
+          core.warning(
+            `Markdown report exceeds ${SAFE_COMMENT_CHAR_LIMIT} chars; posting compact summary instead.`,
+          );
+          let artifactUploaded = false;
+          try {
+            const upload = await uploadMarkdownArtifact(
+              markdownPath,
+              artifactName,
+            );
+            core.info(
+              `Uploaded markdown artifact ${artifactName} (${upload.size} bytes).`,
+            );
+            artifactUploaded = true;
+          } catch (uploadError) {
+            core.warning(
+              `Failed to upload markdown artifact: ${uploadError.message}`,
+            );
+          }
+          commentBody = buildCompactComment(
+            body,
+            artifactName,
+            artifactUploaded,
+          );
+        }
+
         const token =
           core.getInput("github-token") || process.env.GITHUB_TOKEN || "";
         if (!token) {
@@ -287,7 +369,7 @@ async function main() {
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
             issue_number: pr.number,
-            body,
+            body: commentBody,
           });
           finishComment();
         }

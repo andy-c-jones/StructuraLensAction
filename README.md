@@ -72,3 +72,4 @@ jobs:
 - For PR diffs, `actions/checkout` must use `fetch-depth: 0` so the base/head commits are available locally.
 - On PRs, the action analyzes both base and head commits and generates a diff.
 - On non-PR events, it generates a single snapshot report.
+- If the PR markdown diff is too large for a GitHub comment, the action posts a compact summary and uploads the full markdown as artifact `structuralens-diff.md`.

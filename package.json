@@ -1,6 +1,6 @@
 {
   "name": "structuralens-action",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "GitHub Action for StructuraLens",
   "main": "dist/index.js",
@@ -10,6 +10,7 @@
     "format": "prettier --check ."
   },
   "dependencies": {
+    "@actions/artifact": "^2.1.1",
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.0",
     "@actions/io": "^1.1.3",
