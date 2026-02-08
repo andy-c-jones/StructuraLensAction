@@ -13,7 +13,7 @@ This project follows a hybrid licensing model.
 
 | Component | License | Description |
 | :--- | :--- | :--- |
-| **GitHub Action Code** | [Apache 2.0](./LICENSE.md) | The YAML and scripts in this repo. You are free to fork and modify. |
+| **GitHub Action Code** | [Apache 2.0](./LICENSE) | The YAML and scripts in this repo. You are free to fork and modify. |
 | **StructuraLens Binary** | **Proprietary** | The core engine used by this Action. Use requires acceptance of a EULA to can find a copy of [in the disclaimer](./DISCLAIMER.md). |
 
 ### Important Information
