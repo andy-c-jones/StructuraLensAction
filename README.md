@@ -33,6 +33,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
   pull-requests: write
 
 jobs:
@@ -73,3 +74,4 @@ jobs:
 - On PRs, the action analyzes both base and head commits and generates a diff.
 - On non-PR events, it generates a single snapshot report.
 - If the PR markdown diff is too large for a GitHub comment, the action posts a compact summary and uploads the full markdown as artifact `structuralens-diff.md`.
+- Posting PR comments requires `issues: write` because comments use the GitHub Issues API.

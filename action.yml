@@ -14,7 +14,7 @@ inputs:
     required: false
     default: "."
   github-token:
-    description: "GitHub token used for PR comments"
+    description: "GitHub token used to download StructuraLens releases"
     required: false
   run-diff:
     description: "Run base vs head diff on pull_request events"

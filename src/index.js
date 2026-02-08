@@ -358,19 +358,23 @@ async function main() {
           );
         }
 
-        const token =
-          core.getInput("github-token") || process.env.GITHUB_TOKEN || "";
-        if (!token) {
+        const commentToken = process.env.GITHUB_TOKEN || "";
+        if (!commentToken) {
           core.warning("GitHub token not provided. Skipping PR comment.");
         } else {
           const finishComment = startTimer("PR comment post");
-          const client = github.getOctokit(token);
-          await client.rest.issues.createComment({
+          const client = github.getOctokit(commentToken);
+          const response = await client.rest.issues.createComment({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
             issue_number: pr.number,
             body: commentBody,
           });
+          if (response) {
+            core.info(
+              `PR comment posted (status ${response.status}, id ${response.data && response.data.id ? response.data.id : "n/a"}).`,
+            );
+          }
           finishComment();
         }
       }
