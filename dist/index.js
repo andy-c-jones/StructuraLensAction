@@ -34429,6 +34429,7 @@ async function downloadCli(version) {
   }
 
   const assetName = getPlatformAsset(resolvedVersion);
+  core.info(`Downloading StructuraLens v${resolvedVersion} asset ${assetName}`);
   const release = await client.rest.repos.getReleaseByTag({
     ...repo,
     tag: `v${resolvedVersion}`,
