@@ -144,15 +144,25 @@ function extractFirstMarkdownTable(markdown) {
   return null;
 }
 
-function buildCompactComment(markdown, artifactName, artifactUploaded) {
+function buildCompactComment(
+  markdown,
+  artifactName,
+  artifactUploaded,
+  htmlArtifactUrl,
+) {
+  let header = "";
+  if (htmlArtifactUrl) {
+    header = `## 📊 StructuraLens Analysis\n\n**[View Interactive HTML Report →](${htmlArtifactUrl})**\n\n`;
+  }
+
   const banner = artifactUploaded
     ? `**StructuraLens report too large for PR comment.** Full markdown uploaded as artifact: \`${artifactName}\`.`
     : "**StructuraLens report too large for PR comment.** Full markdown could not be uploaded as an artifact.";
   const table = extractFirstMarkdownTable(markdown);
   if (!table) {
-    return banner;
+    return `${header}${banner}`;
   }
-  return `${banner}\n\n${table}`;
+  return `${header}${banner}\n\n${table}`;
 }
 
 async function uploadMarkdownArtifact(filePath, artifactName) {
@@ -167,6 +177,27 @@ async function uploadMarkdownArtifact(filePath, artifactName) {
     },
   );
   return response;
+}
+
+async function uploadHtmlArtifact(filePath, artifactName) {
+  const client = artifact.create();
+  const rootDirectory = path.dirname(filePath);
+  const response = await client.uploadArtifact(
+    artifactName,
+    [filePath],
+    rootDirectory,
+    {
+      continueOnError: false,
+    },
+  );
+  return response;
+}
+
+function buildHtmlArtifactUrl(runId, artifactName) {
+  const { owner, repo } = github.context.repo;
+  // GitHub doesn't provide direct artifact URLs, so we construct a link to the workflow run
+  // Users can download the artifact from the run's artifacts section
+  return `https://github.com/${owner}/${repo}/actions/runs/${runId}#artifacts`;
 }
 
 async function analyzeWithRefs(
@@ -301,6 +332,7 @@ async function main() {
       );
       finishJsonDiff();
 
+      let htmlArtifactUrl = null;
       if (reportHtml) {
         diffHtmlPath = path.join(workdir, ".structuralens", "diff.html");
         const finishHtmlDiff = startTimer("HTML diff report");
@@ -320,6 +352,28 @@ async function main() {
           workdir,
         );
         finishHtmlDiff();
+
+        // Upload HTML diff report as artifact for PR comments
+        if (postComment) {
+          try {
+            const htmlArtifactName = "structuralens-diff-report.html";
+            const upload = await uploadHtmlArtifact(
+              diffHtmlPath,
+              htmlArtifactName,
+            );
+            core.info(
+              `Uploaded HTML artifact ${htmlArtifactName} (${upload.size} bytes).`,
+            );
+            htmlArtifactUrl = buildHtmlArtifactUrl(
+              github.context.runId,
+              htmlArtifactName,
+            );
+          } catch (uploadError) {
+            core.warning(
+              `Failed to upload HTML artifact: ${uploadError.message}`,
+            );
+          }
+        }
       }
 
       if (postComment) {
@@ -349,6 +403,13 @@ async function main() {
         core.info(`Markdown diff report length: ${bodyLength} chars`);
 
         let commentBody = body;
+
+        // Add HTML report link header to comment body
+        if (htmlArtifactUrl) {
+          const htmlHeader = `## 📊 StructuraLens Analysis\n\n**[View Interactive HTML Report →](${htmlArtifactUrl})**\n\n`;
+          commentBody = `${htmlHeader}${body}`;
+        }
+
         const artifactName = "structuralens-diff.md";
         if (bodyLength > SAFE_COMMENT_CHAR_LIMIT) {
           core.warning(
@@ -373,6 +434,7 @@ async function main() {
             body,
             artifactName,
             artifactUploaded,
+            htmlArtifactUrl,
           );
         }
 
