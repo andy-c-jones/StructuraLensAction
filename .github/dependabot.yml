@@ -1,0 +1,42 @@
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      # Group all GitHub Actions packages together
+      github-actions-packages:
+        patterns:
+          - "@actions/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      # Group development and build tools together
+      development-tools:
+        patterns:
+          - "@vercel/ncc"
+          - "eslint"
+          - "prettier"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    rebase-strategy: "auto"
+    commit-message:
+      prefix: "chore(actions)"
