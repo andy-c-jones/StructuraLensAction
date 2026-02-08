@@ -34396,6 +34396,16 @@ const os = __nccwpck_require__(857);
 const path = __nccwpck_require__(6928);
 const { execFileSync } = __nccwpck_require__(5317);
 
+function startTimer(label) {
+  const startedAt = Date.now();
+  core.info(`Starting ${label}`);
+  return () => {
+    const elapsedMs = Date.now() - startedAt;
+    core.info(`Finished ${label} in ${elapsedMs}ms`);
+    return elapsedMs;
+  };
+}
+
 function getPlatformAsset(version) {
   const platform = os.platform();
   const arch = os.arch();
@@ -34424,6 +34434,7 @@ async function downloadCli(version) {
 
   let resolvedVersion = version;
   if (version === "latest") {
+    core.info("Resolving latest StructuraLens release");
     const latest = await client.rest.repos.getLatestRelease(repo);
     resolvedVersion = latest.data.tag_name.replace(/^v/, "");
   }
@@ -34456,8 +34467,10 @@ async function downloadCli(version) {
 
   let extractedPath;
   if (assetName.endsWith(".zip")) {
+    core.info("Extracting ZIP asset");
     extractedPath = await tc.extractZip(archivePath);
   } else {
+    core.info("Extracting TAR asset");
     extractedPath = await tc.extractTar(archivePath);
   }
 
@@ -34484,9 +34497,11 @@ async function analyzeWithRefs(
   workspace,
   repoRoot,
 ) {
+  const finishAnalyze = startTimer("base/head analysis");
   const baseDir = path.join(workspace, ".structuralens", "base");
   const headDir = path.join(workspace, ".structuralens", "head");
 
+  core.info("Preparing analysis directories");
   await io.mkdirP(baseDir);
   await io.mkdirP(headDir);
 
@@ -34496,11 +34511,13 @@ async function analyzeWithRefs(
     cwd: repoRoot,
   });
   const baseReport = path.join(baseDir, "report-base.json");
+  const finishBaseAnalyze = startTimer("base ref analyze");
   runCli(
     cliPath,
     ["analyze", solution, "--format", "json", "--out", baseReport],
     workspace,
   );
+  finishBaseAnalyze();
 
   core.info(`Checking out head ref ${headSha}`);
   execFileSync("git", ["checkout", "--force", headSha], {
@@ -34508,12 +34525,15 @@ async function analyzeWithRefs(
     cwd: repoRoot,
   });
   const headReport = path.join(headDir, "report-head.json");
+  const finishHeadAnalyze = startTimer("head ref analyze");
   runCli(
     cliPath,
     ["analyze", solution, "--format", "json", "--out", headReport],
     workspace,
   );
+  finishHeadAnalyze();
 
+  finishAnalyze();
   return { baseReport, headReport };
 }
 
@@ -34527,6 +34547,7 @@ function getCurrentRef(repoRoot) {
 async function main() {
   const repoRoot = process.env.GITHUB_WORKSPACE || process.cwd();
   const originalRef = getCurrentRef(repoRoot);
+  const finishAction = startTimer("StructuraLens action");
   try {
     const solution = core.getInput("solution", { required: true });
     const runDiff = core.getInput("run-diff") !== "false";
@@ -34539,10 +34560,17 @@ async function main() {
     const workingDirectory = core.getInput("working-directory") || ".";
     const workdir = path.resolve(workspace, workingDirectory);
 
+    core.info(
+      `Inputs: solution=${solution}, runDiff=${runDiff}, postComment=${postComment}, reportHtml=${reportHtml}, reportJson=${reportJson}, maxProjects=${maxProjects}, version=${version}, workdir=${workdir}`,
+    );
+
+    const finishDownload = startTimer("StructuraLens CLI download");
     const cliPath = await downloadCli(version);
+    finishDownload();
     if (os.platform() !== "win32") {
       fs.chmodSync(cliPath, 0o755);
     }
+    core.info(`CLI ready at ${cliPath}`);
 
     const eventName = github.context.eventName;
     const isPullRequest =
@@ -34554,6 +34582,7 @@ async function main() {
     let diffHtmlPath = null;
 
     if (isPullRequest && runDiff) {
+      const finishDiffFlow = startTimer("pull request diff flow");
       const pr = github.context.payload.pull_request;
       if (!pr) {
         throw new Error("Pull request payload not found.");
@@ -34574,6 +34603,7 @@ async function main() {
       headReportPath = headReport;
 
       diffReportPath = path.join(workdir, ".structuralens", "diff.json");
+      const finishJsonDiff = startTimer("JSON diff report");
       runCli(
         cliPath,
         [
@@ -34589,9 +34619,11 @@ async function main() {
         ],
         workdir,
       );
+      finishJsonDiff();
 
       if (reportHtml) {
         diffHtmlPath = path.join(workdir, ".structuralens", "diff.html");
+        const finishHtmlDiff = startTimer("HTML diff report");
         runCli(
           cliPath,
           [
@@ -34607,10 +34639,12 @@ async function main() {
           ],
           workdir,
         );
+        finishHtmlDiff();
       }
 
       if (postComment) {
         const markdownPath = path.join(workdir, ".structuralens", "diff.md");
+        const finishMarkdownDiff = startTimer("Markdown diff report");
         runCli(
           cliPath,
           [
@@ -34628,6 +34662,7 @@ async function main() {
           ],
           workdir,
         );
+        finishMarkdownDiff();
 
         const body = fs.readFileSync(markdownPath, "utf8");
         const token =
@@ -34635,6 +34670,7 @@ async function main() {
         if (!token) {
           core.warning("GitHub token not provided. Skipping PR comment.");
         } else {
+          const finishComment = startTimer("PR comment post");
           const client = github.getOctokit(token);
           await client.rest.issues.createComment({
             owner: github.context.repo.owner,
@@ -34642,41 +34678,54 @@ async function main() {
             issue_number: pr.number,
             body,
           });
+          finishComment();
         }
       }
+      finishDiffFlow();
     } else {
+      const finishAnalyzeFlow = startTimer("non-PR analyze flow");
       if (reportJson) {
         const jsonPath = path.join(workdir, "structuralens-report.json");
+        const finishJsonReport = startTimer("JSON report");
         runCli(
           cliPath,
           ["analyze", solution, "--format", "json", "--out", jsonPath],
           workdir,
         );
+        finishJsonReport();
         headReportPath = jsonPath;
       }
       if (reportHtml) {
         const htmlPath = path.join(workdir, "structuralens-report.html");
+        const finishHtmlReport = startTimer("HTML report");
         runCli(
           cliPath,
           ["analyze", solution, "--format", "html", "--out", htmlPath],
           workdir,
         );
+        finishHtmlReport();
         diffHtmlPath = htmlPath;
       }
+      finishAnalyzeFlow();
     }
 
+    const finishOutputs = startTimer("set outputs");
     if (baseReportPath) core.setOutput("base-report-json", baseReportPath);
     if (headReportPath) core.setOutput("head-report-json", headReportPath);
     if (diffReportPath) core.setOutput("diff-report-json", diffReportPath);
     if (diffHtmlPath) core.setOutput("diff-report-html", diffHtmlPath);
+    finishOutputs();
+    finishAction();
   } catch (error) {
     core.setFailed(error.message);
   } finally {
     try {
+      const finishRestore = startTimer(`restore original ref ${originalRef}`);
       execFileSync("git", ["checkout", "--force", originalRef], {
         stdio: "inherit",
         cwd: repoRoot,
       });
+      finishRestore();
     } catch (restoreError) {
       core.warning(`Failed to restore original ref: ${restoreError.message}`);
     }
