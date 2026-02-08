@@ -51,12 +51,19 @@ async function downloadCli(version) {
     throw new Error(`Release asset not found: ${assetName}`);
   }
 
-  const downloadUrl = asset.url;
-  const headers = { Accept: "application/octet-stream" };
-  if (token) {
-    headers.Authorization = `token ${token}`;
-  }
-  const archivePath = await tc.downloadTool(downloadUrl, undefined, headers);
+  const response = await client.rest.repos.getReleaseAsset({
+    ...repo,
+    asset_id: asset.id,
+    headers: {
+      accept: "application/octet-stream",
+    },
+  });
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "structuralens-"));
+  const archivePath = path.join(tempDir, assetName);
+  const data = response.data;
+  const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  fs.writeFileSync(archivePath, buffer);
 
   let extractedPath;
   if (assetName.endsWith(".zip")) {
