@@ -49,8 +49,8 @@ jobs:
           fetch-depth: 0
       - uses: andy-c-jones/StructuraLensAction@v1
         with:
-          solution: StructuraLens.sln
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          solution: YourSolution.slnx
+          github-token: ${{ github.token }}
 ```
 
 ## Example (Single Snapshot)
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: andy-c-jones/StructuraLensAction@v1
         with:
-          solution: StructuraLens.sln
+          solution: YourSolution.sln
           report-html: true
           report-json: true
 ```
