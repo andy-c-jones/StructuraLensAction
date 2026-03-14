@@ -130826,9 +130826,8 @@ function getPlatformAsset(version) {
   throw new Error(`Unsupported platform: ${platform} ${arch}`);
 }
 
-async function downloadCli(version) {
+async function downloadCli(version, token) {
   const repo = { owner: "andy-c-jones", repo: "StructuraLens" };
-  const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
   const client = getOctokit(token);
 
   let resolvedVersion = version;
@@ -131018,6 +131017,7 @@ async function main() {
   const finishAction = startTimer("StructuraLens action");
   try {
     const solution = getInput("solution", { required: true });
+    const githubToken = getInput("github-token") || process.env.GITHUB_TOKEN || "";
     const runDiff = getInput("run-diff") !== "false";
     const postComment = getInput("post-comment") !== "false";
     const reportHtml = getInput("report-html") !== "false";
@@ -131033,7 +131033,7 @@ async function main() {
     );
 
     const finishDownload = startTimer("StructuraLens CLI download");
-    const cliPath = await downloadCli(version);
+    const cliPath = await downloadCli(version, githubToken);
     finishDownload();
     if (external_os_namespaceObject.platform() !== "win32") {
       external_fs_.chmodSync(cliPath, 0o755);
@@ -131193,13 +131193,12 @@ async function main() {
         }
 
         let commentPosted = false;
-        const commentToken = process.env.GITHUB_TOKEN || "";
-        if (!commentToken) {
+        if (!githubToken) {
           warning("GitHub token not provided. Skipping PR comment.");
         } else {
           const finishComment = startTimer("PR comment post");
           try {
-            const client = getOctokit(commentToken);
+            const client = getOctokit(githubToken);
             const response = await retryAsync(
               () =>
                 client.rest.issues.createComment({

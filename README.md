@@ -12,7 +12,7 @@ This repository is licensed under the [MIT License](./LICENSE).
 
 - `solution` (required): Path to solution (.sln/.slnx) or project (.csproj)
 - `working-directory`: Working directory for analysis (default: `.`)
-- `github-token`: Token for PR comments (default: `GITHUB_TOKEN`)
+- `github-token`: Token for release download and PR comments (default: `GITHUB_TOKEN`)
 - `run-diff`: Run base vs head diff on PRs (default: `true`)
 - `report-html`: Generate HTML report (default: `true`)
 - `report-json`: Generate JSON report (default: `true`)
