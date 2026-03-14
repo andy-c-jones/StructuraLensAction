@@ -12,7 +12,7 @@ This repository is licensed under the [MIT License](./LICENSE).
 
 - `solution` (required): Path to solution (.sln/.slnx) or project (.csproj)
 - `working-directory`: Working directory for analysis (default: `.`)
-- `github-token`: Token for PR comments (default: `GITHUB_TOKEN`)
+- `github-token`: Optional override token for release download and PR comments (defaults to `GITHUB_TOKEN`)
 - `run-diff`: Run base vs head diff on PRs (default: `true`)
 - `report-html`: Generate HTML report (default: `true`)
 - `report-json`: Generate JSON report (default: `true`)
@@ -50,7 +50,6 @@ jobs:
       - uses: andy-c-jones/StructuraLensAction@v1
         with:
           solution: YourSolution.slnx
-          github-token: ${{ github.token }}
 ```
 
 ## Example (Single Snapshot)
