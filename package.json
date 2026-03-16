@@ -11,7 +11,7 @@
     "format": "prettier --check ."
   },
   "dependencies": {
-    "@actions/artifact": "^6.2.0",
+    "@actions/artifact": "^6.2.1",
     "@actions/core": "^3.0.0",
     "@actions/github": "^9.0.0",
     "@actions/io": "^3.0.2",
