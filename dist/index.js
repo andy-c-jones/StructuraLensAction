@@ -132559,6 +132559,8 @@ function _unique(values) {
 const COMMENT_CHAR_LIMIT = 65536;
 const COMMENT_CHAR_BUFFER = 1024;
 const SAFE_COMMENT_CHAR_LIMIT = COMMENT_CHAR_LIMIT - COMMENT_CHAR_BUFFER;
+const STRUCTURALENS_COMMENT_MARKER = "<!-- structuralens-analysis-comment -->";
+const STRUCTURALENS_COMMENT_HEADING = "## 📊 StructuraLens Analysis";
 
 function startTimer(label) {
   const startedAt = Date.now();
@@ -132739,6 +132741,116 @@ function buildHtmlArtifactUrl(runId) {
   return `https://github.com/${owner}/${repo}/actions/runs/${runId}#artifacts`;
 }
 
+function buildManagedCommentBody(body) {
+  return `${STRUCTURALENS_COMMENT_MARKER}\n${body}`;
+}
+
+function isStructuraLensComment(commentBody) {
+  if (!commentBody) return false;
+  return (
+    commentBody.includes(STRUCTURALENS_COMMENT_MARKER) ||
+    commentBody.includes(STRUCTURALENS_COMMENT_HEADING)
+  );
+}
+
+async function listOwnStructuraLensComments(client, owner, repo, issueNumber) {
+  const authenticated = await client.rest.users.getAuthenticated();
+  const actorLogin = authenticated.data.login;
+  const comments = [];
+  let page = 1;
+
+  while (true) {
+    const response = await client.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      per_page: 100,
+      page,
+    });
+
+    for (const comment of response.data) {
+      if (
+        comment.user &&
+        comment.user.login === actorLogin &&
+        isStructuraLensComment(comment.body)
+      ) {
+        comments.push(comment);
+      }
+    }
+
+    if (response.data.length < 100) {
+      break;
+    }
+    page += 1;
+  }
+
+  return comments;
+}
+
+async function upsertStructuraLensComment(
+  client,
+  owner,
+  repo,
+  issueNumber,
+  commentBody,
+) {
+  const matchingComments = await listOwnStructuraLensComments(
+    client,
+    owner,
+    repo,
+    issueNumber,
+  );
+
+  if (matchingComments.length > 0) {
+    const latestComment = matchingComments.reduce((latest, current) =>
+      current.id > latest.id ? current : latest,
+    );
+    await client.rest.issues.updateComment({
+      owner,
+      repo,
+      comment_id: latestComment.id,
+      body: commentBody,
+    });
+
+    let removedDuplicates = 0;
+    for (const comment of matchingComments) {
+      if (comment.id === latestComment.id) continue;
+      try {
+        await client.rest.issues.deleteComment({
+          owner,
+          repo,
+          comment_id: comment.id,
+        });
+        removedDuplicates += 1;
+      } catch (deleteError) {
+        warning(
+          `Failed to delete old StructuraLens comment ${comment.id}: ${deleteError.message}`,
+        );
+      }
+    }
+
+    return {
+      action: "updated",
+      commentId: latestComment.id,
+      removedDuplicates,
+    };
+  }
+
+  const response = await client.rest.issues.createComment({
+    owner,
+    repo,
+    issue_number: issueNumber,
+    body: commentBody,
+  });
+
+  return {
+    action: "created",
+    commentId: response.data && response.data.id ? response.data.id : "n/a",
+    status: response.status,
+    removedDuplicates: 0,
+  };
+}
+
 async function analyzeWithRefs(
   cliPath,
   solution,
@@ -132765,7 +132877,16 @@ async function analyzeWithRefs(
   const finishBaseAnalyze = startTimer("base ref analyze");
   runCli(
     cliPath,
-    ["analyze", solution, "--format", "json", "--analysis-mode", analysisMode, "--out", baseReport],
+    [
+      "analyze",
+      solution,
+      "--format",
+      "json",
+      "--analysis-mode",
+      analysisMode,
+      "--out",
+      baseReport,
+    ],
     workspace,
   );
   finishBaseAnalyze();
@@ -132779,7 +132900,16 @@ async function analyzeWithRefs(
   const finishHeadAnalyze = startTimer("head ref analyze");
   runCli(
     cliPath,
-    ["analyze", solution, "--format", "json", "--analysis-mode", analysisMode, "--out", headReport],
+    [
+      "analyze",
+      solution,
+      "--format",
+      "json",
+      "--analysis-mode",
+      analysisMode,
+      "--out",
+      headReport,
+    ],
     workspace,
   );
   finishHeadAnalyze();
@@ -132801,7 +132931,8 @@ async function main() {
   const finishAction = startTimer("StructuraLens action");
   try {
     const solution = getInput("solution", { required: true });
-    const githubToken = getInput("github-token") || process.env.GITHUB_TOKEN || "";
+    const githubToken =
+      getInput("github-token") || process.env.GITHUB_TOKEN || "";
     const runDiff = getInput("run-diff") !== "false";
     const postComment = getInput("post-comment") !== "false";
     const reportHtml = getInput("report-html") !== "false";
@@ -132844,15 +132975,15 @@ async function main() {
       const baseSha = pr.base.sha;
       const headSha = pr.head.sha;
 
-        const { baseReport, headReport } = await analyzeWithRefs(
-          cliPath,
-          solution,
-          analysisMode,
-          baseSha,
-          headSha,
-          workdir,
-          repoRoot,
-        );
+      const { baseReport, headReport } = await analyzeWithRefs(
+        cliPath,
+        solution,
+        analysisMode,
+        baseSha,
+        headSha,
+        workdir,
+        repoRoot,
+      );
       baseReportPath = baseReport;
       headReportPath = headReport;
 
@@ -132977,6 +133108,7 @@ async function main() {
             htmlArtifactUrl,
           );
         }
+        commentBody = buildManagedCommentBody(commentBody);
 
         let commentPosted = false;
         if (!githubToken) {
@@ -132985,20 +133117,28 @@ async function main() {
           const finishComment = startTimer("PR comment post");
           try {
             const client = getOctokit(githubToken);
-            const response = await retryAsync(
+            const result = await retryAsync(
               () =>
-                client.rest.issues.createComment({
-                  owner: github_context.repo.owner,
-                  repo: github_context.repo.repo,
-                  issue_number: pr.number,
-                  body: commentBody,
-                }),
+                upsertStructuraLensComment(
+                  client,
+                  github_context.repo.owner,
+                  github_context.repo.repo,
+                  pr.number,
+                  commentBody,
+                ),
               { retries: 3, delayMs: 1000, backoff: 2 },
             );
-            if (response) {
+            if (result) {
               info(
-                `PR comment posted (status ${response.status}, id ${response.data && response.data.id ? response.data.id : "n/a"}).`,
+                result.action === "created"
+                  ? `PR comment posted (status ${result.status}, id ${result.commentId}).`
+                  : `PR comment updated (id ${result.commentId}).`,
               );
+              if (result.removedDuplicates > 0) {
+                info(
+                  `Removed ${result.removedDuplicates} older StructuraLens comment(s).`,
+                );
+              }
               commentPosted = true;
             }
           } catch (commentError) {
@@ -133033,7 +133173,16 @@ async function main() {
         const finishJsonReport = startTimer("JSON report");
         runCli(
           cliPath,
-          ["analyze", solution, "--format", "json", "--analysis-mode", analysisMode, "--out", jsonPath],
+          [
+            "analyze",
+            solution,
+            "--format",
+            "json",
+            "--analysis-mode",
+            analysisMode,
+            "--out",
+            jsonPath,
+          ],
           workdir,
         );
         finishJsonReport();
@@ -133044,7 +133193,16 @@ async function main() {
         const finishHtmlReport = startTimer("HTML report");
         runCli(
           cliPath,
-          ["analyze", solution, "--format", "html", "--analysis-mode", analysisMode, "--out", htmlPath],
+          [
+            "analyze",
+            solution,
+            "--format",
+            "html",
+            "--analysis-mode",
+            analysisMode,
+            "--out",
+            htmlPath,
+          ],
           workdir,
         );
         finishHtmlReport();
