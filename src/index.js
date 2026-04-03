@@ -205,9 +205,7 @@ function isStructuraLensComment(commentBody) {
   );
 }
 
-async function listOwnStructuraLensComments(client, owner, repo, issueNumber) {
-  const authenticated = await client.rest.users.getAuthenticated();
-  const actorLogin = authenticated.data.login;
+async function listStructuraLensComments(client, owner, repo, issueNumber) {
   const comments = [];
   let page = 1;
 
@@ -221,11 +219,7 @@ async function listOwnStructuraLensComments(client, owner, repo, issueNumber) {
     });
 
     for (const comment of response.data) {
-      if (
-        comment.user &&
-        comment.user.login === actorLogin &&
-        isStructuraLensComment(comment.body)
-      ) {
+      if (isStructuraLensComment(comment.body)) {
         comments.push(comment);
       }
     }
@@ -246,7 +240,7 @@ async function upsertStructuraLensComment(
   issueNumber,
   commentBody,
 ) {
-  const matchingComments = await listOwnStructuraLensComments(
+  const matchingComments = await listStructuraLensComments(
     client,
     owner,
     repo,
