@@ -194,6 +194,7 @@ function buildHtmlArtifactUrl(runId) {
 async function analyzeWithRefs(
   cliPath,
   solution,
+  analysisMode,
   baseSha,
   headSha,
   workspace,
@@ -216,7 +217,7 @@ async function analyzeWithRefs(
   const finishBaseAnalyze = startTimer("base ref analyze");
   runCli(
     cliPath,
-    ["analyze", solution, "--format", "json", "--out", baseReport],
+    ["analyze", solution, "--format", "json", "--analysis-mode", analysisMode, "--out", baseReport],
     workspace,
   );
   finishBaseAnalyze();
@@ -230,7 +231,7 @@ async function analyzeWithRefs(
   const finishHeadAnalyze = startTimer("head ref analyze");
   runCli(
     cliPath,
-    ["analyze", solution, "--format", "json", "--out", headReport],
+    ["analyze", solution, "--format", "json", "--analysis-mode", analysisMode, "--out", headReport],
     workspace,
   );
   finishHeadAnalyze();
@@ -259,12 +260,13 @@ async function main() {
     const reportJson = core.getInput("report-json") !== "false";
     const maxProjects = parseInt(core.getInput("max-projects") || "10", 10);
     const version = core.getInput("version") || "latest";
+    const analysisMode = core.getInput("analysis-mode") || "Full";
     const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
     const workingDirectory = core.getInput("working-directory") || ".";
     const workdir = path.resolve(workspace, workingDirectory);
 
     core.info(
-      `Inputs: solution=${solution}, runDiff=${runDiff}, postComment=${postComment}, reportHtml=${reportHtml}, reportJson=${reportJson}, maxProjects=${maxProjects}, version=${version}, workdir=${workdir}`,
+      `Inputs: solution=${solution}, runDiff=${runDiff}, postComment=${postComment}, reportHtml=${reportHtml}, reportJson=${reportJson}, maxProjects=${maxProjects}, version=${version}, analysisMode=${analysisMode}, workdir=${workdir}`,
     );
 
     const finishDownload = startTimer("StructuraLens CLI download");
@@ -294,14 +296,15 @@ async function main() {
       const baseSha = pr.base.sha;
       const headSha = pr.head.sha;
 
-      const { baseReport, headReport } = await analyzeWithRefs(
-        cliPath,
-        solution,
-        baseSha,
-        headSha,
-        workdir,
-        repoRoot,
-      );
+        const { baseReport, headReport } = await analyzeWithRefs(
+          cliPath,
+          solution,
+          analysisMode,
+          baseSha,
+          headSha,
+          workdir,
+          repoRoot,
+        );
       baseReportPath = baseReport;
       headReportPath = headReport;
 
@@ -482,7 +485,7 @@ async function main() {
         const finishJsonReport = startTimer("JSON report");
         runCli(
           cliPath,
-          ["analyze", solution, "--format", "json", "--out", jsonPath],
+          ["analyze", solution, "--format", "json", "--analysis-mode", analysisMode, "--out", jsonPath],
           workdir,
         );
         finishJsonReport();
@@ -493,7 +496,7 @@ async function main() {
         const finishHtmlReport = startTimer("HTML report");
         runCli(
           cliPath,
-          ["analyze", solution, "--format", "html", "--out", htmlPath],
+          ["analyze", solution, "--format", "html", "--analysis-mode", analysisMode, "--out", htmlPath],
           workdir,
         );
         finishHtmlReport();
