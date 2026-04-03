@@ -40,6 +40,10 @@ inputs:
     description: "StructuraLens release version (e.g., 1.2.0). Use 'latest' to auto-detect."
     required: false
     default: "latest"
+  analysis-mode:
+    description: "Analysis mode: Full or DiagnosticsAndReferences"
+    required: false
+    default: "Full"
 
 outputs:
   base-report-json:

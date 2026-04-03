@@ -19,6 +19,7 @@ This repository is licensed under the [MIT License](./LICENSE).
 - `post-comment`: Post PR comment with tables (default: `true`)
 - `max-projects`: Max projects in comment table (default: `10`)
 - `version`: StructuraLens release version or `latest` (default: `latest`)
+- `analysis-mode`: Analysis mode (`Full` or `DiagnosticsAndReferences`, default: `Full`)
 
 ## Outputs
 
@@ -50,6 +51,7 @@ jobs:
       - uses: andy-c-jones/StructuraLensAction@v1
         with:
           solution: YourSolution.slnx
+          analysis-mode: DiagnosticsAndReferences
 ```
 
 ## Example (Single Snapshot)
