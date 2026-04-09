@@ -132919,6 +132919,46 @@ function getCurrentRef(repoRoot) {
   }).trim();
 }
 
+function resolvePrDiffBaseSha(repoRoot, baseSha, headSha) {
+  const runMergeBase = () =>
+    (0,external_child_process_namespaceObject.execFileSync)("git", ["merge-base", baseSha, headSha], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+
+  try {
+    const mergeBaseSha = runMergeBase();
+    info(
+      `Resolved PR merge-base ${mergeBaseSha} from base=${baseSha} and head=${headSha}`,
+    );
+    return mergeBaseSha;
+  } catch (mergeBaseError) {
+    const isShallowRepo =
+      (0,external_child_process_namespaceObject.execFileSync)("git", ["rev-parse", "--is-shallow-repository"], {
+        cwd: repoRoot,
+        encoding: "utf8",
+      }).trim() === "true";
+
+    if (!isShallowRepo) {
+      throw mergeBaseError;
+    }
+
+    warning(
+      "Failed to resolve merge-base in shallow clone; fetching full history and retrying.",
+    );
+    (0,external_child_process_namespaceObject.execFileSync)("git", ["fetch", "--no-tags", "--prune", "--unshallow"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
+
+    const mergeBaseSha = runMergeBase();
+    info(
+      `Resolved PR merge-base ${mergeBaseSha} after unshallowing repository.`,
+    );
+    return mergeBaseSha;
+  }
+}
+
 async function main() {
   const repoRoot = process.env.GITHUB_WORKSPACE || process.cwd();
   const originalRef = getCurrentRef(repoRoot);
@@ -132968,12 +133008,13 @@ async function main() {
 
       const baseSha = pr.base.sha;
       const headSha = pr.head.sha;
+      const diffBaseSha = resolvePrDiffBaseSha(repoRoot, baseSha, headSha);
 
       const { baseReport, headReport } = await analyzeWithRefs(
         cliPath,
         solution,
         analysisMode,
-        baseSha,
+        diffBaseSha,
         headSha,
         workdir,
         repoRoot,
