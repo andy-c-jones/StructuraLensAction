@@ -132974,12 +132974,18 @@ async function main() {
     const maxProjects = parseInt(getInput("max-projects") || "10", 10);
     const version = getInput("version") || "latest";
     const analysisMode = getInput("analysis-mode") || "Full";
+    const failOnRaw = (getInput("fail-on") || "none").trim().toLowerCase();
+    const validFailOnValues = ["none", "error", "warning"];
+    const failOn = validFailOnValues.includes(failOnRaw) ? failOnRaw : (() => {
+      warning(`Invalid fail-on value "${failOnRaw}". Valid values are: none, error, warning. Defaulting to "none".`);
+      return "none";
+    })();
     const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
     const workingDirectory = getInput("working-directory") || ".";
     const workdir = external_path_.resolve(workspace, workingDirectory);
 
     info(
-      `Inputs: solution=${solution}, runDiff=${runDiff}, postComment=${postComment}, reportHtml=${reportHtml}, reportJson=${reportJson}, maxProjects=${maxProjects}, version=${version}, analysisMode=${analysisMode}, workdir=${workdir}`,
+      `Inputs: solution=${solution}, runDiff=${runDiff}, postComment=${postComment}, reportHtml=${reportHtml}, reportJson=${reportJson}, maxProjects=${maxProjects}, version=${version}, analysisMode=${analysisMode}, failOn=${failOn}, workdir=${workdir}`,
     );
 
     const finishDownload = startTimer("StructuraLens CLI download");
@@ -133200,6 +133206,39 @@ async function main() {
           }
         }
       }
+
+      // Fail the check if new diagnostics were introduced (checked after comment so feedback is always visible)
+      if (failOn !== "none") {
+        if (!diffReportPath || !external_fs_.existsSync(diffReportPath)) {
+          warning(
+            `fail-on is set to "${failOn}" but diff report JSON was not found; skipping gate.`,
+          );
+        } else {
+          try {
+            const diffJson = JSON.parse(external_fs_.readFileSync(diffReportPath, "utf8"));
+            const newErrors = diffJson.diagnostics?.newErrors ?? 0;
+            const newWarnings = diffJson.diagnostics?.newWarnings ?? 0;
+
+            if (failOn === "error" && newErrors > 0) {
+              setFailed(
+                `StructuraLens: ${newErrors} new error(s) introduced. Fix the errors or set fail-on to "none" to suppress.`,
+              );
+            } else if (failOn === "warning" && (newErrors > 0 || newWarnings > 0)) {
+              const parts = [];
+              if (newErrors > 0) parts.push(`${newErrors} error(s)`);
+              if (newWarnings > 0) parts.push(`${newWarnings} warning(s)`);
+              setFailed(
+                `StructuraLens: new diagnostics introduced: ${parts.join(", ")}. Fix the diagnostics or set fail-on to "none" to suppress.`,
+              );
+            }
+          } catch (parseError) {
+            warning(
+              `fail-on is set to "${failOn}" but diff report JSON could not be parsed: ${parseError.message}`,
+            );
+          }
+        }
+      }
+
       finishDiffFlow();
     } else {
       const finishAnalyzeFlow = startTimer("non-PR analyze flow");
@@ -133244,6 +133283,11 @@ async function main() {
         diffHtmlPath = htmlPath;
       }
       finishAnalyzeFlow();
+      if (failOn !== "none") {
+        warning(
+          `fail-on is set to "${failOn}" but this is not a pull request diff run; skipping gate.`,
+        );
+      }
     }
 
     const finishOutputs = startTimer("set outputs");

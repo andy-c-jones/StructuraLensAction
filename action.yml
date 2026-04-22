@@ -36,6 +36,10 @@ inputs:
     description: "Max number of projects to include in comment table"
     required: false
     default: "10"
+  fail-on:
+    description: "Fail the action check if diagnostics are added: none (default), error (fail on new errors), warning (fail on new errors or warnings)"
+    required: false
+    default: "none"
   version:
     description: "StructuraLens release version (e.g., 1.2.0). Use 'latest' to auto-detect."
     required: false
