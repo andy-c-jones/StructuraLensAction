@@ -130777,7 +130777,7 @@ const COMMENT_CHAR_LIMIT = 65536;
 const COMMENT_CHAR_BUFFER = 1024;
 const SAFE_COMMENT_CHAR_LIMIT = COMMENT_CHAR_LIMIT - COMMENT_CHAR_BUFFER;
 const SUMMARY_CHAR_LIMIT = 900000;
-const DIAGNOSTIC_TABLE_LIMIT = 50;
+const DIAGNOSTICS_PER_SEVERITY_LIMIT = 5;
 const STRUCTURALENS_COMMENT_MARKER = "<!-- structuralens-analysis-comment -->";
 const STRUCTURALENS_COMMENT_HEADING = "## 📊 StructuraLens Analysis";
 
@@ -130966,6 +130966,23 @@ function severityRank(severity) {
   return 4;
 }
 
+function normalizeSeverity(severity) {
+  const normalized = String(severity ?? "").toLowerCase();
+  if (normalized === "error") return "error";
+  if (normalized === "warning") return "warning";
+  if (normalized === "info") return "info";
+  if (normalized === "hidden") return "hidden";
+  return "other";
+}
+
+function severityLabel(severity) {
+  if (severity === "error") return "Error";
+  if (severity === "warning") return "Warning";
+  if (severity === "info") return "Info";
+  if (severity === "hidden") return "Hidden";
+  return "Other";
+}
+
 function collectDependencyChanges(diffJson) {
   const projects = toArray(diffJson?.projects);
   const dependencyLines = [];
@@ -131040,7 +131057,7 @@ function collectDependencyChanges(diffJson) {
   };
 }
 
-function buildActionableComment(diffJson, htmlArtifactUrl) {
+function buildActionableComment(diffJson, htmlArtifactUrl, workflowRunUrl) {
   const diagnostics = toArray(diffJson?.diagnostics?.addedDiagnostics)
     .sort((left, right) => {
       const severityDelta =
@@ -131049,7 +131066,30 @@ function buildActionableComment(diffJson, htmlArtifactUrl) {
       return String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
     });
   const diagnosticsTotal = diagnostics.length;
-  const diagnosticsRows = diagnostics.slice(0, DIAGNOSTIC_TABLE_LIMIT);
+  const groupedDiagnostics = {
+    error: [],
+    warning: [],
+    info: [],
+    hidden: [],
+    other: [],
+  };
+  for (const diagnostic of diagnostics) {
+    groupedDiagnostics[normalizeSeverity(diagnostic?.severity)].push(diagnostic);
+  }
+  const diagnosticsRows = [];
+  const truncatedBySeverity = [];
+  for (const severity of ["error", "warning", "info", "hidden", "other"]) {
+    const items = groupedDiagnostics[severity];
+    if (items.length === 0) continue;
+    diagnosticsRows.push(...items.slice(0, DIAGNOSTICS_PER_SEVERITY_LIMIT));
+    if (items.length > DIAGNOSTICS_PER_SEVERITY_LIMIT) {
+      truncatedBySeverity.push({
+        severity,
+        shown: DIAGNOSTICS_PER_SEVERITY_LIMIT,
+        total: items.length,
+      });
+    }
+  }
   const { dependencyLines, counts } = collectDependencyChanges(diffJson);
   const hasActionable = diagnosticsTotal > 0 || dependencyLines.length > 0;
 
@@ -131060,6 +131100,9 @@ function buildActionableComment(diffJson, htmlArtifactUrl) {
   const parts = [STRUCTURALENS_COMMENT_HEADING, ""];
   if (htmlArtifactUrl) {
     parts.push(`**[View Interactive HTML Report →](${htmlArtifactUrl})**`, "");
+  }
+  if (workflowRunUrl) {
+    parts.push(`**[View job summary in workflow run →](${workflowRunUrl})**`, "");
   }
 
   parts.push(
@@ -131090,11 +131133,17 @@ function buildActionableComment(diffJson, htmlArtifactUrl) {
         `| ${escapeCell(item?.severity)} | ${escapeCell(item?.id)} | ${escapeCell(item?.message)} | ${item?.line ?? 0}:${item?.column ?? 0} | ${escapeCell(item?.file)} |`,
       );
     }
-    if (diagnosticsTotal > diagnosticsRows.length) {
+    if (truncatedBySeverity.length > 0) {
       parts.push(
         "",
-        `_Showing first ${diagnosticsRows.length} of ${diagnosticsTotal} added diagnostics._`,
+        "_Truncated diagnostics in PR comment (5 per severity):_",
       );
+      for (const truncation of truncatedBySeverity) {
+        const remaining = truncation.total - truncation.shown;
+        parts.push(
+          `- ${severityLabel(truncation.severity)}: showing ${truncation.shown} of ${truncation.total} (${remaining} more).${workflowRunUrl ? ` See [job summary](${workflowRunUrl}).` : ""}`,
+        );
+      }
     }
     parts.push("");
   }
@@ -131145,6 +131194,11 @@ function buildHtmlArtifactUrl(runId) {
   // GitHub doesn't provide direct artifact URLs, so we construct a link to the workflow run
   // Users can download the artifact from the run's artifacts section
   return `https://github.com/${owner}/${repo}/actions/runs/${runId}#artifacts`;
+}
+
+function buildWorkflowRunUrl(runId) {
+  const { owner, repo } = github_context.repo;
+  return `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
 }
 
 function buildManagedCommentBody(body) {
@@ -131479,6 +131533,7 @@ async function main() {
       finishJsonDiff();
 
       let htmlArtifactUrl = null;
+      const workflowRunUrl = buildWorkflowRunUrl(github_context.runId);
       if (reportHtml) {
         diffHtmlPath = external_path_.join(workdir, ".structuralens", "diff.html");
         const finishHtmlDiff = startTimer("HTML diff report");
@@ -131549,7 +131604,11 @@ async function main() {
 
       if (postComment) {
         let commentPosted = false;
-        const actionable = buildActionableComment(diffJson, htmlArtifactUrl);
+        const actionable = buildActionableComment(
+          diffJson,
+          htmlArtifactUrl,
+          workflowRunUrl,
+        );
         if (!githubToken) {
           warning("GitHub token not provided. Skipping PR comment.");
         } else {
