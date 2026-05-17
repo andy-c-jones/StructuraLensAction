@@ -11,16 +11,16 @@
     "format": "prettier --check ."
   },
   "dependencies": {
-    "@actions/artifact": "^6.2.1",
-    "@actions/core": "^3.0.0",
-    "@actions/github": "^9.1.0",
-    "@actions/io": "^3.0.2",
-    "@actions/tool-cache": "^4.0.0"
+    "@actions/artifact": "6.2.1",
+    "@actions/core": "3.0.0",
+    "@actions/github": "9.1.0",
+    "@actions/io": "3.0.2",
+    "@actions/tool-cache": "4.0.0"
   },
   "devDependencies": {
-    "@vercel/ncc": "^0.38.1",
-    "eslint": "^10.2.1",
-    "prettier": "^3.8.3"
+    "@vercel/ncc": "0.38.1",
+    "eslint": "10.2.1",
+    "prettier": "3.8.3"
   },
   "license": "MIT"
 }
