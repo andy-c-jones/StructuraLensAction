@@ -131596,13 +131596,20 @@ async function main() {
       appendStepSummary(summaryParts.join("\n"));
 
       let diffJson = null;
+      let diffJsonParsed = true;
       try {
         diffJson = JSON.parse(external_fs_.readFileSync(diffReportPath, "utf8"));
       } catch (parseError) {
+        diffJsonParsed = false;
         warning(`Failed to parse diff JSON for actionable PR comment: ${parseError.message}`);
       }
 
       if (postComment) {
+        if (!diffJsonParsed) {
+          warning(
+            "Skipping PR comment management because diff JSON could not be parsed.",
+          );
+        } else {
         let commentPosted = false;
         const actionable = buildActionableComment(
           diffJson,
@@ -131716,6 +131723,7 @@ async function main() {
               }
             }
           }
+        }
         }
       }
 
