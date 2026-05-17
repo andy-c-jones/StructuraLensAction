@@ -340,10 +340,17 @@ function buildActionableComment(diffJson, htmlArtifactUrl, workflowRunUrl) {
     parts.push(`**[View job summary in workflow run →](${workflowRunUrl})**`, "");
   }
 
-  parts.push(
-    "Action required: review dependency changes and newly introduced diagnostics.",
-    "",
-  );
+  let actionRequiredLine = "Action required: review findings.";
+  if (dependencyLines.length > 0 && diagnosticsTotal > 0) {
+    actionRequiredLine =
+      "Action required: review dependency changes and newly introduced diagnostics.";
+  } else if (dependencyLines.length > 0) {
+    actionRequiredLine = "Action required: review dependency changes.";
+  } else if (diagnosticsTotal > 0) {
+    actionRequiredLine = "Action required: review newly introduced diagnostics.";
+  }
+
+  parts.push(actionRequiredLine, "");
 
   if (dependencyLines.length > 0) {
     parts.push(
