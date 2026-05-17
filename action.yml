@@ -29,7 +29,7 @@ inputs:
     required: false
     default: "true"
   post-comment:
-    description: "Post a PR comment with diff tables"
+    description: "Post a PR comment with actionable changes only (dependencies and added diagnostics)"
     required: false
     default: "true"
   max-projects:

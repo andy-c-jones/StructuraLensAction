@@ -11,6 +11,8 @@ import { execFileSync } from "child_process";
 const COMMENT_CHAR_LIMIT = 65536;
 const COMMENT_CHAR_BUFFER = 1024;
 const SAFE_COMMENT_CHAR_LIMIT = COMMENT_CHAR_LIMIT - COMMENT_CHAR_BUFFER;
+const SUMMARY_CHAR_LIMIT = 900000;
+const DIAGNOSTICS_PER_SEVERITY_LIMIT = 5;
 const STRUCTURALENS_COMMENT_MARKER = "<!-- structuralens-analysis-comment -->";
 const STRUCTURALENS_COMMENT_HEADING = "## 📊 StructuraLens Analysis";
 
@@ -166,6 +168,242 @@ function buildCompactComment(
   return `${header}${banner}\n\n${table}`;
 }
 
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function truncateList(items, maxItems = 5) {
+  const list = toArray(items);
+  if (list.length <= maxItems) {
+    return list.map((item) => `\`${String(item).replaceAll("`", "\\`")}\``).join(", ");
+  }
+
+  const displayed = list
+    .slice(0, maxItems)
+    .map((item) => `\`${String(item).replaceAll("`", "\\`")}\``)
+    .join(", ");
+  return `${displayed}, +${list.length - maxItems} more`;
+}
+
+function escapeCell(value) {
+  return String(value ?? "")
+    .replaceAll("|", "\\|")
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ");
+}
+
+function severityRank(severity) {
+  const normalized = String(severity ?? "").toLowerCase();
+  if (normalized === "error") return 0;
+  if (normalized === "warning") return 1;
+  if (normalized === "info") return 2;
+  if (normalized === "hidden") return 3;
+  return 4;
+}
+
+function normalizeSeverity(severity) {
+  const normalized = String(severity ?? "").toLowerCase();
+  if (normalized === "error") return "error";
+  if (normalized === "warning") return "warning";
+  if (normalized === "info") return "info";
+  if (normalized === "hidden") return "hidden";
+  return "other";
+}
+
+function severityLabel(severity) {
+  if (severity === "error") return "Error";
+  if (severity === "warning") return "Warning";
+  if (severity === "info") return "Info";
+  if (severity === "hidden") return "Hidden";
+  return "Other";
+}
+
+function collectDependencyChanges(diffJson) {
+  const projects = toArray(diffJson?.projects);
+  const dependencyLines = [];
+  let projectRefAdds = 0;
+  let projectRefRemoves = 0;
+  let bclAdds = 0;
+  let bclRemoves = 0;
+  let packageAdds = 0;
+  let packageRemoves = 0;
+
+  for (const project of projects) {
+    const projectName = escapeCell(project?.name ?? "UnknownProject");
+    const addedRefs = toArray(project?.addedProjectReferences);
+    const removedRefs = toArray(project?.removedProjectReferences);
+    const addedBcl = toArray(project?.addedBclDependencies);
+    const removedBcl = toArray(project?.removedBclDependencies);
+    const addedPackages = toArray(project?.addedPackageDependencies);
+    const removedPackages = toArray(project?.removedPackageDependencies);
+    const hasChanges =
+      addedRefs.length > 0 ||
+      removedRefs.length > 0 ||
+      addedBcl.length > 0 ||
+      removedBcl.length > 0 ||
+      addedPackages.length > 0 ||
+      removedPackages.length > 0;
+
+    if (!hasChanges) {
+      continue;
+    }
+
+    dependencyLines.push(`- \`${projectName}\``);
+    if (addedRefs.length > 0) {
+      dependencyLines.push(`  - + Project refs: ${truncateList(addedRefs)}`);
+      projectRefAdds += addedRefs.length;
+    }
+    if (removedRefs.length > 0) {
+      dependencyLines.push(`  - - Project refs: ${truncateList(removedRefs)}`);
+      projectRefRemoves += removedRefs.length;
+    }
+    if (addedBcl.length > 0) {
+      dependencyLines.push(`  - + BCL dependencies: ${truncateList(addedBcl)}`);
+      bclAdds += addedBcl.length;
+    }
+    if (removedBcl.length > 0) {
+      dependencyLines.push(`  - - BCL dependencies: ${truncateList(removedBcl)}`);
+      bclRemoves += removedBcl.length;
+    }
+    if (addedPackages.length > 0) {
+      dependencyLines.push(
+        `  - + Package dependencies: ${truncateList(addedPackages)}`,
+      );
+      packageAdds += addedPackages.length;
+    }
+    if (removedPackages.length > 0) {
+      dependencyLines.push(
+        `  - - Package dependencies: ${truncateList(removedPackages)}`,
+      );
+      packageRemoves += removedPackages.length;
+    }
+  }
+
+  return {
+    dependencyLines,
+    counts: {
+      projectRefAdds,
+      projectRefRemoves,
+      bclAdds,
+      bclRemoves,
+      packageAdds,
+      packageRemoves,
+    },
+  };
+}
+
+function buildActionableComment(diffJson, htmlArtifactUrl, workflowRunUrl) {
+  const diagnostics = toArray(diffJson?.diagnostics?.addedDiagnostics)
+    .sort((left, right) => {
+      const severityDelta =
+        severityRank(left?.severity) - severityRank(right?.severity);
+      if (severityDelta !== 0) return severityDelta;
+      return String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
+    });
+  const diagnosticsTotal = diagnostics.length;
+  const groupedDiagnostics = {
+    error: [],
+    warning: [],
+    info: [],
+    hidden: [],
+    other: [],
+  };
+  for (const diagnostic of diagnostics) {
+    groupedDiagnostics[normalizeSeverity(diagnostic?.severity)].push(diagnostic);
+  }
+  const diagnosticsRows = [];
+  const truncatedBySeverity = [];
+  for (const severity of ["error", "warning", "info", "hidden", "other"]) {
+    const items = groupedDiagnostics[severity];
+    if (items.length === 0) continue;
+    diagnosticsRows.push(...items.slice(0, DIAGNOSTICS_PER_SEVERITY_LIMIT));
+    if (items.length > DIAGNOSTICS_PER_SEVERITY_LIMIT) {
+      truncatedBySeverity.push({
+        severity,
+        shown: DIAGNOSTICS_PER_SEVERITY_LIMIT,
+        total: items.length,
+      });
+    }
+  }
+  const { dependencyLines, counts } = collectDependencyChanges(diffJson);
+  const hasActionable = diagnosticsTotal > 0 || dependencyLines.length > 0;
+
+  if (!hasActionable) {
+    return { hasActionable: false, body: "" };
+  }
+
+  const parts = [STRUCTURALENS_COMMENT_HEADING, ""];
+  if (htmlArtifactUrl) {
+    parts.push(`**[View Interactive HTML Report →](${htmlArtifactUrl})**`, "");
+  }
+  if (workflowRunUrl) {
+    parts.push(`**[View job summary in workflow run →](${workflowRunUrl})**`, "");
+  }
+
+  parts.push(
+    "Action required: review dependency changes and newly introduced diagnostics.",
+    "",
+  );
+
+  if (dependencyLines.length > 0) {
+    parts.push(
+      "### Dependency changes to review",
+      "",
+      `Project refs (+${counts.projectRefAdds}/-${counts.projectRefRemoves}), BCL (+${counts.bclAdds}/-${counts.bclRemoves}), packages (+${counts.packageAdds}/-${counts.packageRemoves}).`,
+      "",
+      ...dependencyLines,
+      "",
+    );
+  }
+
+  if (diagnosticsTotal > 0) {
+    parts.push(
+      "### Added diagnostics",
+      "",
+      "| Severity | Code | Description | Location | File |",
+      "| --- | --- | --- | --- | --- |",
+    );
+    for (const item of diagnosticsRows) {
+      parts.push(
+        `| ${escapeCell(item?.severity)} | ${escapeCell(item?.id)} | ${escapeCell(item?.message)} | ${item?.line ?? 0}:${item?.column ?? 0} | ${escapeCell(item?.file)} |`,
+      );
+    }
+    if (truncatedBySeverity.length > 0) {
+      parts.push(
+        "",
+        "_Truncated diagnostics in PR comment (5 per severity):_",
+      );
+      for (const truncation of truncatedBySeverity) {
+        const remaining = truncation.total - truncation.shown;
+        parts.push(
+          `- ${severityLabel(truncation.severity)}: showing ${truncation.shown} of ${truncation.total} (${remaining} more).${workflowRunUrl ? ` See [job summary](${workflowRunUrl}).` : ""}`,
+        );
+      }
+    }
+    parts.push("");
+  }
+
+  return { hasActionable: true, body: parts.join("\n") };
+}
+
+function appendStepSummary(markdown) {
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) {
+    core.warning("GITHUB_STEP_SUMMARY is not available; skipping job summary.");
+    return;
+  }
+
+  let summary = markdown;
+  if (summary.length > SUMMARY_CHAR_LIMIT) {
+    summary =
+      `${summary.slice(0, SUMMARY_CHAR_LIMIT)}\n\n` +
+      "_Summary truncated due to GitHub job summary size limits._";
+  }
+
+  fs.appendFileSync(summaryPath, `${summary}\n`);
+  core.info(`Wrote ${summary.length} chars to GITHUB_STEP_SUMMARY.`);
+}
+
 async function uploadMarkdownArtifact(filePath, artifactName) {
   const rootDirectory = path.dirname(filePath);
   const response = await artifact.uploadArtifact(
@@ -191,6 +429,11 @@ function buildHtmlArtifactUrl(runId) {
   // GitHub doesn't provide direct artifact URLs, so we construct a link to the workflow run
   // Users can download the artifact from the run's artifacts section
   return `https://github.com/${owner}/${repo}/actions/runs/${runId}#artifacts`;
+}
+
+function buildWorkflowRunUrl(runId) {
+  const { owner, repo } = github.context.repo;
+  return `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
 }
 
 function buildManagedCommentBody(body) {
@@ -295,6 +538,31 @@ async function upsertStructuraLensComment(
     status: response.status,
     removedDuplicates: 0,
   };
+}
+
+async function deleteStructuraLensComments(client, owner, repo, issueNumber) {
+  const matchingComments = await listStructuraLensComments(
+    client,
+    owner,
+    repo,
+    issueNumber,
+  );
+  let deleted = 0;
+  for (const comment of matchingComments) {
+    try {
+      await client.rest.issues.deleteComment({
+        owner,
+        repo,
+        comment_id: comment.id,
+      });
+      deleted += 1;
+    } catch (deleteError) {
+      core.warning(
+        `Failed to delete StructuraLens comment ${comment.id}: ${deleteError.message}`,
+      );
+    }
+  }
+  return deleted;
 }
 
 async function analyzeWithRefs(
@@ -500,6 +768,7 @@ async function main() {
       finishJsonDiff();
 
       let htmlArtifactUrl = null;
+      const workflowRunUrl = buildWorkflowRunUrl(github.context.runId);
       if (reportHtml) {
         diffHtmlPath = path.join(workdir, ".structuralens", "diff.html");
         const finishHtmlDiff = startTimer("HTML diff report");
@@ -520,142 +789,176 @@ async function main() {
         );
         finishHtmlDiff();
 
-        // Upload HTML diff report as artifact for PR comments
-        if (postComment) {
-          try {
-            const htmlArtifactName = "structuralens-diff-report.html";
-            const upload = await uploadHtmlArtifact(
-              diffHtmlPath,
-              htmlArtifactName,
-            );
-            core.info(
-              `Uploaded HTML artifact ${htmlArtifactName} (${upload.size} bytes).`,
-            );
-            htmlArtifactUrl = buildHtmlArtifactUrl(github.context.runId);
-          } catch (uploadError) {
-            core.warning(
-              `Failed to upload HTML artifact: ${uploadError.message}`,
-            );
-          }
+        try {
+          const htmlArtifactName = "structuralens-diff-report.html";
+          const upload = await uploadHtmlArtifact(diffHtmlPath, htmlArtifactName);
+          core.info(
+            `Uploaded HTML artifact ${htmlArtifactName} (${upload.size} bytes).`,
+          );
+          htmlArtifactUrl = buildHtmlArtifactUrl(github.context.runId);
+        } catch (uploadError) {
+          core.warning(`Failed to upload HTML artifact: ${uploadError.message}`);
         }
       }
 
+      const markdownPath = path.join(workdir, ".structuralens", "diff.md");
+      const finishMarkdownDiff = startTimer("Markdown diff report");
+      runCli(
+        cliPath,
+        [
+          "diff",
+          "--base",
+          baseReportPath,
+          "--head",
+          headReportPath,
+          "--format",
+          "markdown",
+          "--out",
+          markdownPath,
+          "--max-projects",
+          String(maxProjects),
+        ],
+        workdir,
+      );
+      finishMarkdownDiff();
+
+      const fullDiffMarkdown = fs.readFileSync(markdownPath, "utf8");
+      const summaryParts = ["## 📊 StructuraLens Analysis", ""];
+      if (htmlArtifactUrl) {
+        summaryParts.push(`**[View Interactive HTML Report →](${htmlArtifactUrl})**`, "");
+      }
+      summaryParts.push(fullDiffMarkdown);
+      appendStepSummary(summaryParts.join("\n"));
+
+      let diffJson = null;
+      let diffJsonParsed = true;
+      try {
+        diffJson = JSON.parse(fs.readFileSync(diffReportPath, "utf8"));
+      } catch (parseError) {
+        diffJsonParsed = false;
+        core.warning(`Failed to parse diff JSON for actionable PR comment: ${parseError.message}`);
+      }
+
       if (postComment) {
-        const markdownPath = path.join(workdir, ".structuralens", "diff.md");
-        const finishMarkdownDiff = startTimer("Markdown diff report");
-        runCli(
-          cliPath,
-          [
-            "diff",
-            "--base",
-            baseReportPath,
-            "--head",
-            headReportPath,
-            "--format",
-            "markdown",
-            "--out",
-            markdownPath,
-            "--max-projects",
-            String(maxProjects),
-          ],
-          workdir,
-        );
-        finishMarkdownDiff();
-
-        const body = fs.readFileSync(markdownPath, "utf8");
-        const bodyLength = body.length;
-        core.info(`Markdown diff report length: ${bodyLength} chars`);
-
-        let commentBody = body;
-
-        // Add HTML report link header to comment body
-        if (htmlArtifactUrl) {
-          const htmlHeader = `## 📊 StructuraLens Analysis\n\n**[View Interactive HTML Report →](${htmlArtifactUrl})**\n\n`;
-          commentBody = `${htmlHeader}${body}`;
-        }
-
-        const artifactName = "structuralens-diff.md";
-        if (bodyLength > SAFE_COMMENT_CHAR_LIMIT) {
+        if (!diffJsonParsed) {
           core.warning(
-            `Markdown report exceeds ${SAFE_COMMENT_CHAR_LIMIT} chars; posting compact summary instead.`,
+            "Skipping PR comment management because diff JSON could not be parsed.",
           );
-          let artifactUploaded = false;
-          try {
-            const upload = await uploadMarkdownArtifact(
-              markdownPath,
-              artifactName,
-            );
-            core.info(
-              `Uploaded markdown artifact ${artifactName} (${upload.size} bytes).`,
-            );
-            artifactUploaded = true;
-          } catch (uploadError) {
-            core.warning(
-              `Failed to upload markdown artifact: ${uploadError.message}`,
-            );
-          }
-          commentBody = buildCompactComment(
-            body,
-            artifactName,
-            artifactUploaded,
-            htmlArtifactUrl,
-          );
-        }
-        commentBody = buildManagedCommentBody(commentBody);
-
+        } else {
         let commentPosted = false;
+        const actionable = buildActionableComment(
+          diffJson,
+          htmlArtifactUrl,
+          workflowRunUrl,
+        );
         if (!githubToken) {
           core.warning("GitHub token not provided. Skipping PR comment.");
         } else {
-          const finishComment = startTimer("PR comment post");
-          try {
-            const client = github.getOctokit(githubToken);
-            const result = await retryAsync(
+          const client = github.getOctokit(githubToken);
+          if (!actionable.hasActionable) {
+            const deleted = await retryAsync(
               () =>
-                upsertStructuraLensComment(
+                deleteStructuraLensComments(
                   client,
                   github.context.repo.owner,
                   github.context.repo.repo,
                   pr.number,
-                  commentBody,
                 ),
               { retries: 3, delayMs: 1000, backoff: 2 },
             );
-            if (result) {
-              core.info(
-                result.action === "created"
-                  ? `PR comment posted (status ${result.status}, id ${result.commentId}).`
-                  : `PR comment updated (id ${result.commentId}).`,
+            core.info(
+              deleted > 0
+                ? `No actionable items; removed ${deleted} prior StructuraLens comment(s).`
+                : "No actionable items; no StructuraLens PR comment posted.",
+            );
+          } else {
+            let commentBody = actionable.body;
+            let actionableCommentPath = path.join(
+              workdir,
+              ".structuralens",
+              "actionable-comment.md",
+            );
+            fs.writeFileSync(actionableCommentPath, commentBody, "utf8");
+
+            if (commentBody.length > SAFE_COMMENT_CHAR_LIMIT) {
+              core.warning(
+                `Actionable comment exceeds ${SAFE_COMMENT_CHAR_LIMIT} chars; posting compact summary instead.`,
               );
-              if (result.removedDuplicates > 0) {
+              const artifactName = "structuralens-actionable-comment.md";
+              let artifactUploaded = false;
+              try {
+                const upload = await uploadMarkdownArtifact(
+                  actionableCommentPath,
+                  artifactName,
+                );
                 core.info(
-                  `Removed ${result.removedDuplicates} older StructuraLens comment(s).`,
+                  `Uploaded markdown artifact ${artifactName} (${upload.size} bytes).`,
+                );
+                artifactUploaded = true;
+              } catch (uploadError) {
+                core.warning(
+                  `Failed to upload markdown artifact: ${uploadError.message}`,
                 );
               }
-              commentPosted = true;
+              commentBody = buildCompactComment(
+                commentBody,
+                artifactName,
+                artifactUploaded,
+                htmlArtifactUrl,
+              );
             }
-          } catch (commentError) {
-            core.warning(
-              `Failed to post PR comment after retries: ${commentError.message}`,
-            );
-          }
-          finishComment();
-        }
 
-        if (!commentPosted) {
-          try {
-            const upload = await uploadMarkdownArtifact(
-              markdownPath,
-              "structuralens-pr-comment.md",
-            );
-            core.info(
-              `PR comment not posted; uploaded as artifact structuralens-pr-comment.md (${upload.size} bytes).`,
-            );
-          } catch (uploadError) {
-            core.warning(
-              `Failed to upload PR comment as artifact: ${uploadError.message}`,
-            );
+            commentBody = buildManagedCommentBody(commentBody);
+            const finishComment = startTimer("PR comment post");
+            try {
+              const result = await retryAsync(
+                () =>
+                  upsertStructuraLensComment(
+                    client,
+                    github.context.repo.owner,
+                    github.context.repo.repo,
+                    pr.number,
+                    commentBody,
+                  ),
+                { retries: 3, delayMs: 1000, backoff: 2 },
+              );
+              if (result) {
+                core.info(
+                  result.action === "created"
+                    ? `PR comment posted (status ${result.status}, id ${result.commentId}).`
+                    : `PR comment updated (id ${result.commentId}).`,
+                );
+                if (result.removedDuplicates > 0) {
+                  core.info(
+                    `Removed ${result.removedDuplicates} older StructuraLens comment(s).`,
+                  );
+                }
+                commentPosted = true;
+              }
+            } catch (commentError) {
+              core.warning(
+                `Failed to post PR comment after retries: ${commentError.message}`,
+              );
+            }
+            finishComment();
+
+            if (!commentPosted) {
+              try {
+                const upload = await uploadMarkdownArtifact(
+                  actionableCommentPath,
+                  "structuralens-pr-comment.md",
+                );
+                core.info(
+                  `PR comment not posted; uploaded as artifact structuralens-pr-comment.md (${upload.size} bytes).`,
+                );
+              } catch (uploadError) {
+                core.warning(
+                  `Failed to upload PR comment as artifact: ${uploadError.message}`,
+                );
+              }
+            }
           }
+        }
         }
       }
 
@@ -694,6 +997,7 @@ async function main() {
       finishDiffFlow();
     } else {
       const finishAnalyzeFlow = startTimer("non-PR analyze flow");
+      const summaryPath = path.join(workdir, "structuralens-summary.md");
       if (reportJson) {
         const jsonPath = path.join(workdir, "structuralens-report.json");
         const finishJsonReport = startTimer("JSON report");
@@ -734,6 +1038,48 @@ async function main() {
         finishHtmlReport();
         diffHtmlPath = htmlPath;
       }
+
+      const finishSummaryReport = startTimer("Summary report");
+      runCli(
+        cliPath,
+        [
+          "analyze",
+          solution,
+          "--format",
+          "summary",
+          "--analysis-mode",
+          analysisMode,
+          "--out",
+          summaryPath,
+        ],
+        workdir,
+      );
+      finishSummaryReport();
+
+      let htmlArtifactUrl = null;
+      if (diffHtmlPath) {
+        try {
+          const htmlArtifactName = "structuralens-report.html";
+          const upload = await uploadHtmlArtifact(diffHtmlPath, htmlArtifactName);
+          core.info(
+            `Uploaded HTML artifact ${htmlArtifactName} (${upload.size} bytes).`,
+          );
+          htmlArtifactUrl = buildHtmlArtifactUrl(github.context.runId);
+        } catch (uploadError) {
+          core.warning(`Failed to upload HTML artifact: ${uploadError.message}`);
+        }
+      }
+
+      const summaryBody = fs.existsSync(summaryPath)
+        ? fs.readFileSync(summaryPath, "utf8")
+        : "StructuraLens summary output was not generated.";
+      const summaryParts = ["## 📊 StructuraLens Analysis", ""];
+      if (htmlArtifactUrl) {
+        summaryParts.push(`**[View Interactive HTML Report →](${htmlArtifactUrl})**`, "");
+      }
+      summaryParts.push(summaryBody);
+      appendStepSummary(summaryParts.join("\n"));
+
       finishAnalyzeFlow();
       if (failOn !== "none") {
         core.warning(
