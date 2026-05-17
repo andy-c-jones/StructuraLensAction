@@ -6,27 +6,19 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 3
     open-pull-requests-limit: 5
     rebase-strategy: "auto"
     commit-message:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
     groups:
-      # Group all GitHub Actions packages together
-      github-actions-packages:
+      all-npm-dependencies:
         patterns:
-          - "@actions/*"
+          - "*"
         update-types:
-          - "minor"
-          - "patch"
-
-      # Group development and build tools together
-      development-tools:
-        patterns:
-          - "@vercel/ncc"
-          - "eslint"
-          - "prettier"
-        update-types:
+          - "major"
           - "minor"
           - "patch"
 
@@ -36,7 +28,17 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 3
     open-pull-requests-limit: 5
     rebase-strategy: "auto"
     commit-message:
       prefix: "chore(actions)"
+    groups:
+      all-github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
