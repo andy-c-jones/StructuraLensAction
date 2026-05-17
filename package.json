@@ -8,7 +8,8 @@
   "scripts": {
     "build": "ncc build src/index.js -o dist",
     "lint": "eslint .",
-    "format": "prettier --check ."
+    "format": "prettier --check .",
+    "postinstall": "npm audit --audit-level=moderate"
   },
   "dependencies": {
     "@actions/artifact": "6.2.1",
