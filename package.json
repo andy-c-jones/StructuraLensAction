@@ -19,9 +19,9 @@
     "@actions/tool-cache": "4.0.0"
   },
   "devDependencies": {
-    "@vercel/ncc": "0.38.4",
-    "eslint": "10.3.0",
-    "prettier": "3.8.3"
+    "@vercel/ncc": "0.44.1",
+    "eslint": "10.6.0",
+    "prettier": "3.9.5"
   },
   "license": "MIT"
 }
